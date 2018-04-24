@@ -1,0 +1,118 @@
+#!/bin/bash -e
+
+# Copyright (C) 2017 Oliver Schulz <oschulz@mpp.mpg.de>
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); 
+# you may not use this file except in compliance with the License. 
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software 
+# distributed under the License is distributed on an "AS IS" BASIS, 
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. 
+# See the License for the specific language governing permissions and 
+# limitations under the License.
+
+
+update_base_image="no"
+while getopts u opt
+do
+    case "$opt" in
+        u) update_base_image="yes" ;;
+    esac
+done
+shift `expr $OPTIND - 1`
+
+
+SINGULARITY_IMG_DIR="${HOME}/.vm/singularity/images"
+
+DOCKER_IMG_NAME="$1"
+SINGULARITY_IMG_NAME="$2"
+
+if [ ! -f "Dockerfile" ] ; then
+    echo "ERROR: No Dockerfile" >&2
+    exit 1
+fi
+
+if [ -z "${SINGULARITY_IMG_NAME}" ] ; then
+    # echo "DEBUG: DOCKER_IMG_NAME=${DOCKER_IMG_NAME}" >&2
+
+    if (echo "${DOCKER_IMG_NAME}" | grep -q '/'); then
+        orgname=`echo "${DOCKER_IMG_NAME}" | cut -d '/' -f 1`
+        imgname=`echo "${DOCKER_IMG_NAME}" | cut -d '/' -f 2-`
+    else
+        orgname=""
+        imgname="${DOCKER_IMG_NAME}"
+    fi
+
+    # echo "DEBUG: orgname=${orgname}" >&2
+    # echo "DEBUG: imgname=${imgname}" >&2
+
+    if [ -z "${imgname}" ] ; then
+        pwdname="$(basename `pwd` | sed 's/_[^_]*$//')"
+
+        if (echo "${pwdname}" | grep -q '_'); then
+            orgname=`echo "${pwdname}" | cut -d '_' -f 1`
+            imgname=`echo "${pwdname}" | cut -d '_' -f 2-`
+        else
+            orgname=""
+            imgname="${pwdname}"
+        fi
+    fi
+
+    # echo "DEBUG: imgname=${imgname}" >&2
+
+    git_desc=`git describe --all | sed 's|^.*/||'`
+
+    if [ "${git_desc}" = "master" ] ; then
+        tag="latest"
+    else
+        tag="${git_desc}"
+    fi
+
+    if [ -z "${orgname}" ] ; then
+        DOCKER_IMG_NAME="${imgname}:${tag}"
+        SINGULARITY_IMG_NAME="${imgname}_${tag}"
+    else
+        DOCKER_IMG_NAME="${orgname}/${imgname}:${tag}"
+        SINGULARITY_IMG_NAME="${orgname}_${imgname}_${tag}"
+    fi
+
+    # echo "DEBUG: DOCKER_IMG_NAME=${DOCKER_IMG_NAME}" >&2
+    # echo "DEBUG: SINGULARITY_IMG_NAME=${SINGULARITY_IMG_NAME}" >&2
+fi
+
+if [ -z "${DOCKER_IMG_NAME}" -o -z "${SINGULARITY_IMG_NAME}" ] ; then
+    echo "Syntax: $0 [-u] [DOCKER_IMG_NAME [SINGULARITY_IMG_NAME]]" >&2
+    exit 1
+fi
+
+echo "Will build Docker image \"${DOCKER_IMG_NAME}\"" >&2
+echo "Will build Singularity image \"${SINGULARITY_IMG_NAME}\"" >&2
+
+
+DOCKER_BASE_IMG=`cat Dockerfile | grep '^\s*FROM' | sed 's/^\s*FROM\s*//; s/\s*$//'`
+
+if [ "${update_base_image}" == "yes" ] ; then
+    echo "INFO: Updating docker base image ${DOCKER_BASE_IMG}" >&2
+    docker pull "${DOCKER_BASE_IMG}"
+else
+    echo "INFO: Using local version of docker base image ${DOCKER_BASE_IMG}" >&2
+fi
+
+docker build -t ${DOCKER_IMG_NAME} .
+
+# TIMESTAMP=`date -u '+%Y%m%d%H%M%S'`
+TIMESTAMP=$(date -d `docker inspect -f '{{ .Created }}' "${DOCKER_IMG_NAME}"` -u '+%Y%m%d%H%M%S')
+
+IMG_FILE="${SINGULARITY_IMG_NAME}.sqsh"
+IMG_FILE_TS="${SINGULARITY_IMG_NAME}_${TIMESTAMP}.sqsh"
+
+echo "INFO: Docker image: ${DOCKER_IMG_NAME}" >&2
+echo "INFO: Singularity image: ${SINGULARITY_IMG_DIR}/${IMG_FILE} -> ${IMG_FILE_TS}" >&2
+echo "INFO: Docker base image: ${DOCKER_BASE_IMG}" >&2
+
+cd "${SINGULARITY_IMG_DIR}"
+docker2singularity.py ${DOCKER_IMG_NAME} "${IMG_FILE_TS}"
+rm -f "${IMG_FILE}" && ln -s "${IMG_FILE_TS}" "${IMG_FILE}"
