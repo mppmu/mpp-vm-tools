@@ -67,6 +67,8 @@ if [ -z "${SINGULARITY_IMG_NAME}" ] ; then
 
     if [ "${git_desc}" = "master" ] ; then
         tag="latest"
+    elif [ "${git_desc}" = "dev" ] ; then
+        tag="latest"
     else
         tag="${git_desc}"
     fi
