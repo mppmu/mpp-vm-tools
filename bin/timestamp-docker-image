@@ -1,0 +1,42 @@
+#!/bin/bash -e
+
+# Copyright (C) 2017 Oliver Schulz <oschulz@mpp.mpg.de>
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); 
+# you may not use this file except in compliance with the License. 
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software 
+# distributed under the License is distributed on an "AS IS" BASIS, 
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. 
+# See the License for the specific language governing permissions and 
+# limitations under the License.
+
+DOCKER_IMG_NAME="$1"
+
+if [ -z "${DOCKER_IMG_NAME}" ]; then
+    echo "Syntax: $0 DOCKER_IMG_NAME"
+    exit
+fi
+
+TIMESTAMP=$(date -d `docker inspect -f '{{ .Created }}' "${DOCKER_IMG_NAME}"` -u '+%Y%m%d%H%M%S')
+
+IFS=':' read -ra IMG_NAME_FIELDS <<< "$DOCKER_IMG_NAME"
+IMG_BASENAME="${IMG_NAME_FIELDS[0]}"
+IMG_TAG="${IMG_NAME_FIELDS[1]}"
+
+if [ -z "${IMG_TAG}" -o "${IMG_TAG}" = "latest" ] ; then
+    NEW_TAG="${TIMESTAMP}"
+else
+    NEW_TAG="${IMG_TAG}_${TIMESTAMP}"
+fi
+
+DOCKER_TAGGED_NAME="${IMG_BASENAME}:${NEW_TAG}"
+
+echo "INFO: Tagging ${DOCKER_IMG_NAME} as ${DOCKER_TAGGED_NAME}" >&2
+
+docker tag "${DOCKER_IMG_NAME}" "${DOCKER_TAGGED_NAME}"
+
+echo "${DOCKER_TAGGED_NAME}"
