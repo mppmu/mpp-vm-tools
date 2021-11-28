@@ -103,18 +103,28 @@ else
     echo "INFO: Using local version of docker base image ${DOCKER_BASE_IMG}" >&2
 fi
 
-docker build -t ${DOCKER_IMG_NAME} .
+
+DOCKER_BUILD_OPTS=""
+
+if (grep -q '\-\-mount=type=ssh' Dockerfile) ; then
+    export DOCKER_BUILDKIT=1
+    DOCKER_BUILD_OPTS="$DOCKER_BUILD_OPTS --ssh default"
+fi
+
+docker build -t ${DOCKER_IMG_NAME} $DOCKER_BUILD_OPTS .
+
 
 # TIMESTAMP=`date -u '+%Y%m%d%H%M%S'`
 TIMESTAMP=$(date -d `docker inspect -f '{{ .Created }}' "${DOCKER_IMG_NAME}"` -u '+%Y%m%d%H%M%S')
 
-IMG_FILE="${SINGULARITY_IMG_NAME}.sqsh"
-IMG_FILE_TS="${SINGULARITY_IMG_NAME}_${TIMESTAMP}.sqsh"
+IMG_FILE="${SINGULARITY_IMG_NAME}.sif"
+IMG_FILE_TS="${SINGULARITY_IMG_NAME}_${TIMESTAMP}.sif"
 
 echo "INFO: Docker image: ${DOCKER_IMG_NAME}" >&2
 echo "INFO: Singularity image: ${SINGULARITY_IMG_DIR}/${IMG_FILE} -> ${IMG_FILE_TS}" >&2
 echo "INFO: Docker base image: ${DOCKER_BASE_IMG}" >&2
 
 cd "${SINGULARITY_IMG_DIR}"
-docker2singularity.py ${DOCKER_IMG_NAME} "${IMG_FILE_TS}"
+#docker2singularity.py ${DOCKER_IMG_NAME} "${IMG_FILE_TS}"
+singularity build "${IMG_FILE_TS}" "docker-daemon://${DOCKER_IMG_NAME}"
 rm -f "${IMG_FILE}" && ln -s "${IMG_FILE_TS}" "${IMG_FILE}"
