@@ -65,7 +65,9 @@ if [ -z "${SINGULARITY_IMG_NAME}" ] ; then
 
     git_desc=`git describe --all | sed 's|^.*/||'`
 
-    if [ "${git_desc}" = "master" ] ; then
+    if [ "${git_desc}" = "main" ] ; then
+        tag="latest"
+    elif [ "${git_desc}" = "master" ] ; then
         tag="latest"
     elif [ "${git_desc}" = "dev" ] ; then
         tag="latest"
