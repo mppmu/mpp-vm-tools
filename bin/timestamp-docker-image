@@ -27,7 +27,7 @@ IFS=':' read -ra IMG_NAME_FIELDS <<< "$DOCKER_IMG_NAME"
 IMG_BASENAME="${IMG_NAME_FIELDS[0]}"
 IMG_TAG="${IMG_NAME_FIELDS[1]}"
 
-if [ -z "${IMG_TAG}" -o "${IMG_TAG}" = "latest" ] ; then
+if [ -z "${IMG_TAG}" ] ; then
     NEW_TAG="${TIMESTAMP}"
 else
     NEW_TAG="${IMG_TAG}_${TIMESTAMP}"
