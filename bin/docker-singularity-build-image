@@ -16,85 +16,73 @@
 
 
 update_base_image="no"
-while getopts u opt
+build_singularity="yes"
+while getopts ud opt
 do
     case "$opt" in
         u) update_base_image="yes" ;;
+        d) build_singularity="no" ;;
     esac
 done
 shift `expr $OPTIND - 1`
 
 
-SINGULARITY_IMG_DIR="${HOME}/.vm/singularity/images"
+APPTAINER_IMG_DIR="${HOME}/.vm/singularity/images"
 
 DOCKER_IMG_NAME="$1"
-SINGULARITY_IMG_NAME="$2"
+APPTAINER_IMG_NAME="$2"
+APPTAINER_CACHEDIR="${HOME}/.apptainer/cache"
+REAL_APPTAINER_CACHEDIR=`realpath "${APPTAINER_CACHEDIR}"`
 
 if [ ! -f "Dockerfile" ] ; then
     echo "ERROR: No Dockerfile" >&2
     exit 1
 fi
 
-if [ -z "${SINGULARITY_IMG_NAME}" ] ; then
-    # echo "DEBUG: DOCKER_IMG_NAME=${DOCKER_IMG_NAME}" >&2
-
-    if (echo "${DOCKER_IMG_NAME}" | grep -q '/'); then
-        orgname=`echo "${DOCKER_IMG_NAME}" | cut -d '/' -f 1`
-        imgname=`echo "${DOCKER_IMG_NAME}" | cut -d '/' -f 2-`
-    else
-        orgname=""
-        imgname="${DOCKER_IMG_NAME}"
-    fi
-
-    # echo "DEBUG: orgname=${orgname}" >&2
-    # echo "DEBUG: imgname=${imgname}" >&2
-
-    if [ -z "${imgname}" ] ; then
-        pwdname="$(basename `pwd` | sed 's/_[^_]*$//')"
-
-        if (echo "${pwdname}" | grep -q '_'); then
-            orgname=`echo "${pwdname}" | cut -d '_' -f 1`
-            imgname=`echo "${pwdname}" | cut -d '_' -f 2-`
-        else
-            orgname=""
-            imgname="${pwdname}"
-        fi
-    fi
-
-    # echo "DEBUG: imgname=${imgname}" >&2
-
-    git_desc=`git describe --all | sed 's|^.*/||'`
-
-    if [ "${git_desc}" = "main" ] ; then
-        tag="latest"
-    elif [ "${git_desc}" = "master" ] ; then
-        tag="latest"
-    elif [ "${git_desc}" = "dev" ] ; then
-        tag="latest"
-    else
-        tag="${git_desc}"
-    fi
-
-    if [ -z "${orgname}" ] ; then
-        DOCKER_IMG_NAME="${imgname}:${tag}"
-        SINGULARITY_IMG_NAME="${imgname}_${tag}"
-    else
-        DOCKER_IMG_NAME="${orgname}/${imgname}:${tag}"
-        SINGULARITY_IMG_NAME="${orgname}_${imgname}_${tag}"
-    fi
-
-    # echo "DEBUG: DOCKER_IMG_NAME=${DOCKER_IMG_NAME}" >&2
-    # echo "DEBUG: SINGULARITY_IMG_NAME=${SINGULARITY_IMG_NAME}" >&2
+if [ ! -d "${REAL_APPTAINER_CACHEDIR}" ] ; then
+    echo "INFO: Apptainer cache dirctory \"${REAL_APPTAINER_CACHEDIR}\" doesn't exist, creating it." >&2
+    mkdir -p "${REAL_APPTAINER_CACHEDIR}"
 fi
 
-if [ -z "${DOCKER_IMG_NAME}" -o -z "${SINGULARITY_IMG_NAME}" ] ; then
-    echo "Syntax: $0 [-u] [DOCKER_IMG_NAME [SINGULARITY_IMG_NAME]]" >&2
+if [ -z "${APPTAINER_IMG_NAME}" ] ; then
+    DOCKER_IMG_NAME=`docker-image-name`
+    if [ -z "${DOCKER_IMG_NAME}" ] ; then
+        echo "ERROR: Can't infer docker image name." >&2
+        exit 1
+    fi
+
+    reponame=`echo "${DOCKER_IMG_NAME}" | cut -d ':' -f 1`
+    tagname=`echo "${DOCKER_IMG_NAME}" | cut -d ':' -f 2`
+
+    imgname=`echo "${reponame}" | rev | cut -d '/' -f 1 | rev`
+    orgname=`echo "${reponame}" | rev | cut -d '/' -f 2 | rev`
+    regname=`echo "${reponame}" | rev | cut -d '/' -f 3- | rev`
+
+    # echo "DEBUG: imgname=${imgname}" >&2
+    # echo "DEBUG: orgname=${orgname}" >&2
+    # echo "DEBUG: regname=${regname}" >&2
+    # echo "DEBUG: reponame=${reponame}" >&2
+
+    if [ -z "${orgname}" ] ; then
+        APPTAINER_IMG_NAME="${imgname}_${tagname}"
+    else
+        APPTAINER_IMG_NAME="${orgname}_${imgname}_${tagname}"
+    fi
+
+    # echo "DEBUG: DOCKER_IMG_NAME=${DOCKER_IMG_NAME}" >&2
+    # echo "DEBUG: APPTAINER_IMG_NAME=${APPTAINER_IMG_NAME}" >&2
+fi
+
+if [ -z "${DOCKER_IMG_NAME}" -o -z "${APPTAINER_IMG_NAME}" ] ; then
+    echo "Syntax: $0 [-u] [DOCKER_IMG_NAME [APPTAINER_IMG_NAME]]" >&2
     exit 1
 fi
 
 echo "Will build Docker image \"${DOCKER_IMG_NAME}\"" >&2
-echo "Will build Singularity image \"${SINGULARITY_IMG_NAME}\"" >&2
 
+if [ "${build_singularity}" == "yes" ] ; then
+    echo "Will build Apptainer image \"${APPTAINER_IMG_NAME}\"" >&2
+fi
 
 DOCKER_BASE_IMG=`cat Dockerfile | grep '^\s*FROM' | sed 's/^\s*FROM\s*//; s/\s*$//'`
 
@@ -115,18 +103,27 @@ fi
 
 docker build -t ${DOCKER_IMG_NAME} $DOCKER_BUILD_OPTS .
 
+if [ "${build_singularity}" == "yes" ] ; then
+    # TIMESTAMP=`date -u '+%Y%m%d%H%M%S'`
+    TIMESTAMP=$(date -d `docker inspect -f '{{ .Created }}' "${DOCKER_IMG_NAME}"` -u '+%Y%m%d%H%M%S')
 
-# TIMESTAMP=`date -u '+%Y%m%d%H%M%S'`
-TIMESTAMP=$(date -d `docker inspect -f '{{ .Created }}' "${DOCKER_IMG_NAME}"` -u '+%Y%m%d%H%M%S')
+    IMG_FILE_LNK="${APPTAINER_IMG_NAME}.sif"
+    IMG_FILE_TS="${APPTAINER_IMG_NAME}_${TIMESTAMP}.sif"
+    TMP_IMG_FILE_TS=`mktemp -u -t "${APPTAINER_IMG_NAME}_tmp_XXXXXX.sif"`
 
-IMG_FILE="${SINGULARITY_IMG_NAME}.sif"
-IMG_FILE_TS="${SINGULARITY_IMG_NAME}_${TIMESTAMP}.sif"
+    echo "INFO: Docker image: ${DOCKER_IMG_NAME}" >&2
+    echo "INFO: Apptainer image: ${APPTAINER_IMG_DIR}/${IMG_FILE_LNK} -> ${IMG_FILE_TS}" >&2
+    echo "INFO: Temporary Apptainer image: ${TMP_IMG_FILE_TS}" >&2
+    echo "INFO: Docker base image: ${DOCKER_BASE_IMG}" >&2
 
-echo "INFO: Docker image: ${DOCKER_IMG_NAME}" >&2
-echo "INFO: Singularity image: ${SINGULARITY_IMG_DIR}/${IMG_FILE} -> ${IMG_FILE_TS}" >&2
-echo "INFO: Docker base image: ${DOCKER_BASE_IMG}" >&2
-
-cd "${SINGULARITY_IMG_DIR}"
-#docker2singularity.py ${DOCKER_IMG_NAME} "${IMG_FILE_TS}"
-singularity build "${IMG_FILE_TS}" "docker-daemon://${DOCKER_IMG_NAME}"
-rm -f "${IMG_FILE}" && ln -s "${IMG_FILE_TS}" "${IMG_FILE}"
+    cd "${APPTAINER_IMG_DIR}"
+    #docker2singularity.py ${DOCKER_IMG_NAME} "${IMG_FILE_TS}"
+    if [ -f "${IMG_FILE_TS}" ] ; then
+        echo "INFO: Apptainer image ${IMG_FILE_TS} exists, skipping build." >&2
+    else
+        echo "INFO: Running" apptainer build "${TMP_IMG_FILE_TS}" "docker-daemon://${DOCKER_IMG_NAME}" >&2
+        apptainer build "${TMP_IMG_FILE_TS}" "docker-daemon://${DOCKER_IMG_NAME}"
+        mv "${TMP_IMG_FILE_TS}" "${IMG_FILE_TS}"
+        rm -f "${IMG_FILE_LNK}" && ln -s "${IMG_FILE_TS}" "${IMG_FILE_LNK}"
+    fi
+fi
