@@ -1,0 +1,13 @@
+#!/bin/bash
+
+DOCKER_IMG_NAME=`docker-image-name`
+
+TIMESTAMPED_IMG_NAME=`timestamp-docker-image "${DOCKER_IMG_NAME}"`
+
+echo "INFO: Docker image name names are \"${DOCKER_IMG_NAME}\" and \"${TIMESTAMPED_IMG_NAME}\"" >&2
+
+for img in \
+    "${DOCKER_IMG_NAME}" "${TIMESTAMPED_IMG_NAME}" \
+;do
+    docker push $img
+done
